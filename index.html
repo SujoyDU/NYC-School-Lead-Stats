@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" type="text/css" href="./assets/css/dc.css" />
+  <link rel="stylesheet" type="text/css" href="./assets/css/datatable.css" />
+  <script src="./assets/js/d3.js" type="text/javascript"> </script>
+  <script src="./assets/js/crossfilter.js" type="text/javascript"> </script>
+  <script src="./assets/js/dc.js" type="text/javascript"> </script>
+  <script src="./assets/js/reductio.js" type="text/javascript"> </script>
+</head>
+<body>
+<h1>Lead Level at NYC Schools</h1>
+<div id= "borough_pie_chart">
+  <strong>Boroughs of NYC</strong>
+  <a class="reset" href="javascript:boroughPieChart.filterAll();dc.redrawAll();" style="display: none;">reset</a>
+  <div class="clearfix"></div>
+</div>
+
+<div id= "zip_code_row_Chart">
+  <strong>Zip Codes of NYC</strong>
+  <a class="reset" href="javascript:zipCodeRowChart.filterAll();dc.redrawAll();" style="display: none;">reset</a>
+  <div class="clearfix"></div>
+</div>
+
+
+<div id= "outlets_stack_chart">
+  <strong>Safe and Unsafe Outlets by Boroughs of NYC</strong>
+  <a class="reset" href="javascript:outletsStackChart.filterAll();dc.redrawAll();" style="display: none;">reset</a>
+  <div class="clearfix"></div>
+</div>
+
+<div id= "lead_percentage_stack_chart">
+  <strong>Lead Percentage by Boroughs of NYC</strong>
+  <a class="reset" href="javascript:leadPercentageStackChart.filterAll();dc.redrawAll();" style="display: none;">reset</a>
+  <div class="clearfix"></div>
+</div>
+
+
+<div id='school_data_table'>
+      <table id="schools">
+      </table>
+      <div id="pagination">
+        Results: <span id="start"></span>-<span id="end"></span> of <span id="totalSize"></span>
+        <button id="prev" class="btn" onclick="prev()">Prev</button>
+        <button id="next" class="btn" onclick="next()">Next</button>
+    </div>
+</div>
+  
+
+<script>
+
+  var boroughPieChart = dc.pieChart("#borough_pie_chart"),
+      zipCodeRowChart = dc.rowChart("#zip_code_row_Chart"),
+      outletsStackChart = dc.barChart("#outlets_stack_chart"),
+      leadPercentageStackChart = dc.barChart("#lead_percentage_stack_chart"),
+      schoolOutletsDataTable = dc.dataTable("#schools")
+
+   var resultStart = 0; var resultEnd =10;
+   var ndx;
+
+      function displayResult() {
+
+        document.getElementById("start").innerHTML = resultStart+1;
+        document.getElementById("end").innerHTML = resultStart + resultEnd;
+
+        document.getElementById("totalSize").innerHTML = ndx.size();
+
+
+        d3.select('#prev').attr('disabled', resultStart-resultEnd < 0 ? 'true' : null);
+        d3.select('#next').attr('disabled', resultStart+resultEnd >= ndx.size() ? 'true' : null);
+      }
+      
+     function prev() {
+        resultStart -= resultEnd;;
+        updateResult();
+        schoolOutletsDataTable.redraw();
+      }
+
+      function next() {
+        resultStart += resultEnd;
+        updateResult();
+        schoolOutletsDataTable.redraw();
+      }
+
+      
+
+      function updateResult() {
+        schoolOutletsDataTable.beginSlice(resultStart);
+        schoolOutletsDataTable.endSlice(resultStart + resultEnd);
+        displayResult();
+      }
+
+
+  d3.csv("./assets/data/nyc_lead_test.csv").then(function (data) {
+      data.forEach( function (d) {
+        d.schoolCity = d["School City"],
+        d.zipCode = d["School Zip Code"],
+        d.school = d["School"],
+        d.totalOutlets = +d["Number of Outlets"],
+        d.safeOutlets = +d["Number of Outlets, Result ≤ 15 ppb"],
+        d.dangerOutlets = +d["Number of Outlets, Result > 15 ppb"]
+      })
+      ndx = crossfilter(data)
+      var all = ndx.groupAll()
+
+
+      // drawing a pie chart of boroughs d3.format(".0%") d3.format(".2f");
+      var boroughDimension = ndx.dimension( d => d.schoolCity ),
+          schoolDimension = ndx.dimension ( d => d.school),
+          zipCodeDimension = ndx.dimension( d => d.zipCode)
+
+      
+      var numberFormat = d3.format(".2%")
+          
+      var zipCodeGroup = zipCodeDimension.group()
+
+      var schoolGroup = schoolDimension.group().reduce(
+        function(p,v) {
+          //p.count++;
+          p.totalOutlets += v.totalOutlets
+          p.safeOutlets += v.safeOutlets;
+          p.dangerOutlets += v.dangerOutlets;
+          p.safeP = (p.safeOutlets / p.totalOutlets) 
+          p.dangerP = (p.dangerOutlets/ p.totalOutlets) 
+          return p;
+        },
+        function(p,v){
+          //p.count--;
+          p.totalOutlets -= v.totalOutlets
+          p.safeOutlets -= v.safeOutlets;
+          p.dangerOutlets -= v.dangerOutlets;
+          p.safeP = (p.safeOutlets / p.totalOutlets) 
+          p.dangerP = (p.dangerOutlets/ p.totalOutlets)     
+          return p;
+        },
+        function() {
+          return {
+           // count:0,
+            totalOutlets:0,
+            safeP:0,
+            dangerP:0,
+            safeOutlets:0,
+            dangerOutlets:0
+          };
+           
+        }
+      )
+      //drawing a school table
+
+     
+     
+
+      schoolOutletsDataTable
+        .width(768)
+        .height(480)
+        .dimension(schoolDimension)
+        .group( d => d.schoolCity)
+        .showGroups(false)
+        .columns([
+            "School",
+            "School City",
+            "Number of Outlets",
+            "Number of Outlets, Result ≤ 15 ppb",
+            "Number of Outlets, Result > 15 ppb",
+            {
+              label: 'Safe Outlets Percentage',
+                format: function (d) {
+                    return numberFormat(d.safeOutlets / d.totalOutlets);
+                }
+            },
+        ])
+        .size(Infinity)
+        .sortBy(function (d) { return d.safeP })
+        .order(d3.ascending)
+        
+
+        updateResult()
+        
+
+     
+
+      var outletsGroup = boroughDimension.group().reduce(
+        function(p,v) {
+          p.count++;
+          p.totalOutlets += v.totalOutlets
+          p.safeOutlets += v.safeOutlets;
+          p.dangerOutlets += v.dangerOutlets;
+          p.safeP = (p.safeOutlets / p.totalOutlets) 
+          p.dangerP = (p.dangerOutlets/ p.totalOutlets) 
+          return p;
+        },
+        function(p,v){
+          p.count--;
+          p.totalOutlets -= v.totalOutlets
+          p.safeOutlets -= v.safeOutlets;
+          p.dangerOutlets -= v.dangerOutlets;
+          p.safeP = (p.safeOutlets / p.totalOutlets) 
+          p.dangerP = (p.dangerOutlets/ p.totalOutlets)     
+          return p;
+        },
+        function() {
+          return {
+            count:0,
+            totalOutlets:0,
+            safeP:0,
+            dangerP:0,
+            safeOutlets:0,
+            dangerOutlets:0
+          };
+           
+        }
+      );
+
+      //drawing a zip code row chart
+      zipCodeRowChart
+        .width(500)
+        .height(480)
+        .x(d3.scaleLinear().domain([0,40]))
+        .elasticX(true)
+        .dimension(zipCodeDimension)
+        .group(zipCodeGroup)
+        .data (function (group) { return group.top(10); });
+       
+
+      //drawing a stack chart for safe and danger Outlets    
+      boroughPieChart
+        .width(768)
+        .height(480)
+        .innerRadius(30)
+        .dimension(boroughDimension)
+        .group(outletsGroup)
+        .valueAccessor(function(d) {
+                    return d.value.count;
+                })
+        .legend(dc.legend())
+        .label(function (d) {
+           label = d.key + ' : ' + d.value.count;
+           return label;
+        })
+        .colors(['#85C1E9','#5DADE2','#7FB3D5', '#3498DB','#2E86C1','#2874A6','#21618C','#1B4F72'])
+        .colorDomain([100,500])
+        .colorAccessor(function(d, i){return d.value.count;})
+
+      outletsStackChart
+                .width(800)
+                .height(500)
+                .margins({top: 100, right: 50, bottom: 40, left: 50})
+                .dimension(boroughDimension)
+                .group(outletsGroup, "Number of Outlets, Result ≤ 15 ppb")
+                .valueAccessor(function(d) {
+                    return d.value.safeOutlets;
+                })
+                .stack(outletsGroup, "Number of Outlets, Result > 15 ppb", function(d){return d.value.dangerOutlets;})
+                .x(d3.scaleBand())
+                .xUnits(dc.units.ordinal)
+                .xAxisLabel('Boroughs Of NYC')
+                .yAxisLabel('Total Outlets')
+                .renderHorizontalGridLines(true)
+                .elasticY(true)
+                .elasticX(true)
+                .brushOn(false)
+                .barPadding(0.1)
+                .outerPadding(0.05)
+                .legend(dc.legend().x(350).y(10))
+                .title(function(d){
+                    return d.key
+                            + "\n:Number of Outlets, Result ≤ 15 ppb: " + Math.round(d.value.safeOutlets)
+                            + "\nNumber of Outlets, Result > 15 ppb: " + Math.round(d.value.dangerOutlets);
+                })
+
+        leadPercentageStackChart
+                .width(800)
+                .height(500)
+                .margins({top: 100, right: 50, bottom: 40, left: 50})
+                .dimension(boroughDimension)
+                .group(outletsGroup, "Percent of Outlets, Result ≤ 15 ppb")
+                .valueAccessor(function(d) {
+                    return d.value.safeP * 100;
+                })
+                .stack(outletsGroup, "Percent of Outlets, Result > 15 ppb", function(d){return d.value.dangerP * 100;})
+                .x(d3.scaleBand())
+                .xUnits(dc.units.ordinal)
+                .xAxisLabel('Boroughs Of NYC')
+                .yAxisLabel('Outlets Percent')
+                .renderHorizontalGridLines(true)
+                .elasticY(true)
+                .elasticX(true)
+                .brushOn(false)
+                .barPadding(0.1)
+                .outerPadding(0.05)
+                .legend(dc.legend().x(350).y(10))
+                .title(function(d){
+                    return d.key
+                            + "\n:Percent of Outlets, Result ≤ 15 ppb: " + numberFormat(d.value.safeP)
+                            + "\nPercent of Outlets, Result > 15 ppb: " + numberFormat(d.value.dangerP);
+                })
+
+        dc.renderAll();
+    });
+
+
+  function print_filter(filter){
+    var f=eval(filter);
+    if (typeof(f.length) != "undefined") {}else{}
+    if (typeof(f.top) != "undefined") {f=f.top(Infinity);}else{}
+    if (typeof(f.dimension) != "undefined") {f=f.dimension(function(d) { return "";}).top(Infinity);}else{}
+    console.log(filter+"("+f.length+") = "+JSON.stringify(f).replace("[","[\n\t").replace(/}\,/g,"},\n\t").replace("]","\n]"));
+  } 
+</script>
+
+
+
+</body>
+
+</html>
+
